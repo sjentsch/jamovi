@@ -1057,7 +1057,17 @@ const BackstageModel = Backbone.Model.extend({
 
         this._savePromiseResolve = null;
 
-        ActionHub.get('save').on('request', () => this.requestSave());
+        ActionHub.get('save').on('request', async () => {
+            try {
+                await this.requestSave();
+            }
+            catch (e) {
+                if ( ! this.instance.attributes.saveFormat) {
+                    this.set('activated', true);
+                    this.set('operation', 'saveAs');
+                }
+            }
+        });
 
         this.attributes.ops = [
 
@@ -1196,8 +1206,16 @@ const BackstageModel = Backbone.Model.extend({
                 {
                     name: 'save',
                     title: 'Save',
-                    action: () => {
-                        this.requestSave();
+                    action: async () => {
+                        try {
+                            await this.requestSave();
+                        }
+                        catch (e) {
+                            if ( ! this.instance.attributes.saveFormat) {
+                                this.set('activated', true);
+                                this.set('operation', 'saveAs');
+                            }
+                        }
                     }
                 },
                 {
@@ -1299,7 +1317,12 @@ const BackstageModel = Backbone.Model.extend({
                     if (result.canceled)
                         return;
                     let filePath = result.filePath.replace(/\\/g, '/');
-                    this.requestSave(filePath, { overwrite: true });
+                    this.requestSave(filePath, { overwrite: true }).catch((e) => {
+                        if ( ! this.instance.attributes.saveFormat) {
+                            this.set('activated', true);
+                            this.set('operation', 'saveAs');
+                        }
+                    });
                 });
             }
         }
@@ -1371,11 +1394,25 @@ const BackstageModel = Backbone.Model.extend({
     tryImport: function(paths, type, wdType) {
         this.requestImport(paths);
     },
-    trySave: function(filePath, type) {
-        this.requestSave(filePath);
+    async trySave(filePath, type) {
+        try {
+            await this.requestSave(filePath);
+        }
+        catch (e) {
+            if ( ! this.instance.attributes.saveFormat) {
+                this.set('activated', true);
+                this.set('operation', 'saveAs');
+            }
+        }
     },
-    tryExport: function(filePath, type) {
-        this.requestSave(filePath, { export: true });
+    async tryExport(filePath, type) {
+        try {
+            await this.requestSave(filePath, { export: true });
+        }
+        catch(e) {
+            this.set('activated', true);
+            this.set('operation', 'export');
+        }
     },
     setCurrentDirectory: function(wdType, dirPath, type) {
         if (dirPath === '')
@@ -1460,6 +1497,10 @@ const BackstageModel = Backbone.Model.extend({
             promise = Promise.resolve();
 
         promise.then(() => {
+            let op = this.getCurrentOp();
+            if (op === null)
+                return;
+
             if ('places' in op) {
                 let names = _.pluck(op.places, 'name');
                 let index = names.indexOf(this.attributes.lastSelectedPlace);
@@ -1487,6 +1528,8 @@ const BackstageModel = Backbone.Model.extend({
                     this.trigger('change:place');
                 }, 0);
             }
+            else
+                this.set('operation', '');
         });
 
         if (promise.done)  // if Q promise
@@ -1610,11 +1653,8 @@ const BackstageModel = Backbone.Model.extend({
                 // shouldn't appear either on save, or on save failure
                 options.overwrite = true;
             }
-            else {
-                this.set('activated', true);
-                this.set('operation', 'saveAs');
+            else
                 throw undefined;
-            }
         }
 
         try {
@@ -1637,12 +1677,6 @@ const BackstageModel = Backbone.Model.extend({
         }
         catch (e) {
             this.setSavingState(false);
-            if ( ! this.instance.attributes.saveFormat) {
-                // this should probably be performed by the caller,
-                // rather than here, but whatevs
-                this.set('activated', true);
-                this.set('operation', 'saveAs');
-            }
             throw e;
         }
 
@@ -1850,14 +1884,15 @@ const BackstageView = SilkyView.extend({
 
         let operation = this.model.get('operation');
 
-        if ( ! host.isElectron) {
-            let op = null;
-            for (let opObj of this.model.attributes.ops) {
-                if (opObj.name === operation) {
-                    op = opObj;
-                    break;
-                }
+        let op = null;
+        for (let opObj of this.model.attributes.ops) {
+            if (opObj.name === operation) {
+                op = opObj;
+                break;
             }
+        }
+
+        if ( ! host.isElectron) {
 
             let $logo = this.$el.find('.silky-bs-logo');
             if (op !== null) {
@@ -1879,9 +1914,13 @@ const BackstageView = SilkyView.extend({
         }
         $subOps.css('height', height);
         $subOps.css('opacity', 1);
-        $op.addClass('selected');
 
-        if (operation && this.model.get('activated'))
+        let hasPlaces = op !== null && op.places !== undefined;
+
+        if (hasPlaces)
+            $op.addClass('selected');
+
+        if (operation && this.model.get('activated') && hasPlaces)
             this.$el.addClass('activated-sub');
         else
             this.$el.removeClass('activated-sub');
