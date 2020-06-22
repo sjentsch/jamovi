@@ -14,9 +14,12 @@ Backbone.$ = $;
 
 const tarp = require('./utils/tarp');
 const pathtools = require('./utils/pathtools');
+const Notify = require('./notification');
 
 const host = require('./host');
 const ActionHub = require('./actionhub');
+const { CancelledError } = require('./errors');
+
 
 function crc16(s) {
     if (s.length === 0)
@@ -1330,10 +1333,13 @@ const BackstageModel = Backbone.Model.extend({
             if (type === 'open') {
                 try {
                     let files = await host.showOpenDialog({ filters });
-                    this.requestOpen(files[0]);
+                    await this.requestOpen(files[0]);
                 }
                 catch (e) {
-                    // cancelled
+                    if (e instanceof CancelledError)
+                        ;  // do nothing
+                    else
+                        throw e;
                 }
             }
             else if (type === 'import') {
@@ -1342,7 +1348,10 @@ const BackstageModel = Backbone.Model.extend({
                     this.requestImport(files);
                 }
                 catch (e) {
-                    // cancelled
+                    if (e instanceof CancelledError)
+                        ;  // do nothing
+                    else
+                        throw e;
                 }
             }
         }
@@ -1541,11 +1550,23 @@ const BackstageModel = Backbone.Model.extend({
     },
     async requestOpen(filePath) {
 
+        let progNotif = new Notify({
+            title: 'Opening',
+            duration: 0
+        });
+
         let deactivated = false;
         try {
 
             let stream = this.instance.open(filePath);
             for await (let progress of stream) {
+
+                progNotif.set({
+                    title: progress.title,
+                    progress: progress.progress,
+                })
+                this.trigger('notification', progNotif);
+
                 if ( ! deactivated) {
                     deactivated = true;
                     this.set('activated', false);
@@ -1562,9 +1583,14 @@ const BackstageModel = Backbone.Model.extend({
             else
                 host.openWindow(iid);
 
-        } catch (e) {
+        }
+        catch (e) {
             if (deactivated)
                 this.set('activated', true);
+            this._notify({ message: 'Unable to open', cause: e.cause || e.message, type: 'error' });
+        }
+        finally {
+            progNotif.dismiss();
         }
     },
     requestImport: function(paths) {
@@ -1701,7 +1727,16 @@ const BackstageModel = Backbone.Model.extend({
     },
     completeHandler: function(evt) {
         console.log('complete');
-    }
+    },
+    _notify(error) {
+        let notification = new Notify({
+            title: error.message,
+            message: error.cause,
+            duration: 3000,
+            type: error.type ? error.type : 'info',
+        });
+        this.trigger('notification', notification);
+    },
 });
 
 const BackstageView = SilkyView.extend({

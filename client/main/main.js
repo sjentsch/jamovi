@@ -317,6 +317,7 @@ $(document).ready(async() => {
     mainTable.on('notification', note => notifications.notify(note));
     ribbon.on('notification', note => notifications.notify(note));
     editor.on('notification', note => notifications.notify(note));
+    backstageModel.on('notification', note => notifications.notify(note));
 
     dataSetModel.on('change:edited', event => {
         host.setEdited(dataSetModel.attributes.edited);
@@ -364,22 +365,15 @@ $(document).ready(async() => {
 
         let status;
 
-        if (host.isElectron) {
-            // in electron we have fallbacks
-            try {
-                status = await instance.open(toOpen, { existing: !!instanceId });
-            }
-            catch (e) {
-                // if opening fails, open a blank data set
-                if (toOpen)
-                    status = await instance.open('', { existing: !!instanceId });
-                else
-                    throw e;
-            }
+        try {
+            status = await instance.open(toOpen, { existing: !!instanceId });
         }
-        else {
-            // we disable notification (on failure), because we present a big message
-            status = await instance.open(toOpen, { existing: !!instanceId, notify: false });
+        catch (e) {
+            if (host.isElectron && toOpen !== '')
+                // if opening fails, open a blank data set
+                status = await instance.open('', { existing: !!instanceId });
+            else
+                throw e;
         }
 
         if ('url' in status)

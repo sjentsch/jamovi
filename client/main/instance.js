@@ -146,18 +146,14 @@ const Instance = Backbone.Model.extend({
 
         options = options || { };
 
-        let coms = this.attributes.coms;
-
-        let progress = new Notify({
-            title: 'Opening',
-            duration: 0
-        });
-
         return new ProgressStream(async (setProgress) => {
 
             let response;
 
             if (file instanceof File) {
+
+                setProgress({ title: 'Uploading', progress: [0, 0] });
+
                 let url = `${ host.baseUrl }open`;
                 let payload = new FormData();
                 payload.append('file', file);
@@ -169,6 +165,8 @@ const Instance = Backbone.Model.extend({
                 });
             }
             else {
+
+                setProgress({ title: 'Opening', progress: [0, 0] });
 
                 let url;
                 if (options.existing)
@@ -190,7 +188,7 @@ const Instance = Backbone.Model.extend({
                 return { 'status': 'OK' };
 
             if (response.status !== 200)
-                throw 'Connection failed';
+                throw new JError('Unable to open', { cause: response.statusText });
 
             const reader = response.body.getReader();
             const utf8Decoder = new TextDecoder('utf-8');
@@ -214,11 +212,8 @@ const Instance = Backbone.Model.extend({
                     }
                 }
 
-                if (message && message.status === 'in-progress') {
-                    setProgress([message.p, message.n]);
-                    progress.set('progress', [message.p, message.n]);
-                    this.trigger('notification', progress);
-                }
+                if (message && message.status === 'in-progress')
+                    setProgress({ title: 'Opening', progress: [ message.p, message.n ] });
 
                 if (done)
                     break;
@@ -231,13 +226,9 @@ const Instance = Backbone.Model.extend({
                     cause,
                     status: message.status,
                     messageSrc: message['message-src'] });
-                progress.dismiss();
-                if (options.notify !== false)
-                    this._notify(error);
                 throw error;
             }
             else {
-                progress.dismiss();
                 return message;
             }
         });
