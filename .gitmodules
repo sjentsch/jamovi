@@ -17,3 +17,6 @@
 [submodule "plots"]
 	path = plots
 	url = https://github.com/jamovi/jmvplots.git
+[submodule "jTransform"]
+	path = jTransform
+	url = https://github.com/sjentsch/jTransform
